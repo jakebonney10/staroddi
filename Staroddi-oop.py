@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import serial
 import logging,csv
 from datetime import datetime
@@ -88,18 +89,20 @@ class staroddi:
     state=True
     
     def __init__(self):
-        self.ser=serial.Serial(baudrate=4800, bytesize=8, stopbits=serial.STOPBITS_ONE, timeout=2,)
+        sample_rate = .5
+        self.ser=serial.Serial(baudrate=4800, bytesize=8, stopbits=serial.STOPBITS_ONE, timeout=sample_rate,)
         #self.ser.port='COM5'             #windows
         self.ser.port='/dev/ttyUSB0'    #pi
         logging.getLogger(__name__)
         logging.basicConfig(level=logging.INFO,format='%(asctime)s: %(levelname)s  %(message)s')
         
     def connection(self):
-        self.ser.open()
-        self.ser.write(serial.to_bytes([0x00]))      #wake up
-        self.ser.readline()                 #takes output from sensor
-        self.ser.write(serial.to_bytes([0x0c]))      #set to computer mode
-        self.ser.readline()
+        if not self.ser.is_open:
+            self.ser.open()
+            self.ser.write(serial.to_bytes([0x00]))      #wake up
+            self.ser.readline()                 #takes output from sensor
+            self.ser.write(serial.to_bytes([0x0c]))      #set to computer mode
+            self.ser.readline()
     
     def datacollection(self):
         self.ser.write(serial.to_bytes([0x02]))
@@ -145,20 +148,52 @@ class staroddi:
         RT=R/(rT*RP)
         S=self.a0+self.a1*RT**.5+self.a2*RT+self.a3*RT**1.5+self.a4*RT**2+self.a5*RT**2.5+(Tv-15)/(1+self.k*(T-15))*(self.b0+self.b1*RT**.5+self.b2*RT+self.b3*RT**1.5+self.b4*RT**2+self.b5*RT**2.5)
         
-        #print ("%.2f" % Tv,'°C',"%.2f" % D,'m',"%.2f" % S,'psu')
+        # Assigning the calculated values to class attributes
+        self.Tv = Tv
+        self.D = D
+        self.S = S
+
+        # Spit info out onto the terminal
         logging.info('%.2f °C, %.2f m, %.2f psu', Tv, D, S)
-        #logging.info("%.2f" % Tv,'°C',"%.2f" % D,'m',"%.2f" % S,'psu')
+
+    def now():
+        return datetime.now().isoformat().replace(':', '')[:-7]
+
+    def record_data(self):
+
+        csv_filename = f"data/CTD_Data_{now()}.csv"
+        fieldnames = ['Timestamp', 'Temperature (°C)', 'Depth (m)', 'Salinity (psu)']
+
+        with open(csv_filename, 'w', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader() # Write the header only if the file doesn't exist
+
+            try:
+                self.connection()
+                while self.state:
+                    timestamp = now()
+                    self.datacollection()
+                    self.calculation()
+                    temperature = self.Tv
+                    depth = self.D
+                    salinity = self.S
+
+                    # Append the data to the CSV file
+                    writer.writerow({'Timestamp': timestamp,
+                                     'Temperature (°C)': temperature,
+                                     'Depth (m)': depth,
+                                     'Salinity (psu)': salinity})
+            except KeyboardInterrupt:
+                self.end()
         
+
     def end(self):
         self.ser.close()
         
+
     def run(self):
         try:
-            self.connection()
-            while self.state:
-                self.datacollection()
-                self.calculation()
-            self.end()
+            self.record_data()
         except KeyboardInterrupt:
             self.end()
             
