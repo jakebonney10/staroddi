@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import serial
 import logging,csv
 from datetime import datetime
