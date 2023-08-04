@@ -172,8 +172,6 @@ class staroddi:
                 self.connection()
                 while self.state:
                     timestamp = now()
-                    self.datacollection()
-                    self.calculation()
                     temperature = self.Tv
                     depth = self.D
                     salinity = self.S
@@ -193,6 +191,8 @@ class staroddi:
 
     def run(self):
         try:
+            self.datacollection()
+            self.calculation()
             self.record_data()
         except KeyboardInterrupt:
             self.end()
