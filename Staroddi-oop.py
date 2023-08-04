@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 import os
+import time
 import serial
 import logging,csv
 from datetime import datetime
 
+
 def now():
     return datetime.now().isoformat().replace(':','')[:-7]
 
+
 class staroddi:
+
     #Calibration Constants
     #Temperature
     Tc0=137.210166872518
@@ -87,15 +91,17 @@ class staroddi:
     Depth=[]
     Sal=[]
     state=True
-    
+
+
     def __init__(self):
-        sample_rate = .5
-        self.ser=serial.Serial(baudrate=4800, bytesize=8, stopbits=serial.STOPBITS_ONE, timeout=sample_rate,)
+        self.sample_rate = 5 #sample rate in seconds
+        self.ser=serial.Serial(baudrate=4800, bytesize=8, stopbits=serial.STOPBITS_ONE, timeout=1,)
         #self.ser.port='COM5'             #windows
         self.ser.port='/dev/ttyUSB0'    #pi
         logging.getLogger(__name__)
         logging.basicConfig(level=logging.INFO,format='%(asctime)s: %(levelname)s  %(message)s')
-        
+
+
     def connection(self):
         if not self.ser.is_open:
             self.ser.open()
@@ -103,8 +109,10 @@ class staroddi:
             self.ser.readline()                 #takes output from sensor
             self.ser.write(serial.to_bytes([0x0c]))      #set to computer mode
             self.ser.readline()
-    
+
+
     def datacollection(self):
+        self.timestamp = now()
         self.ser.write(serial.to_bytes([0x02]))
         self.ser.readline()
         self.ser.write(serial.to_bytes([0x55]))
@@ -116,7 +124,8 @@ class staroddi:
             self.ph=output[3]
             self.cl=output[4]
             self.ch=output[5]
-            
+
+
     def calculation(self):
         T=self.tl+self.th*256
         P=self.pl+self.ph*256
@@ -156,44 +165,44 @@ class staroddi:
         # Spit info out onto the terminal
         logging.info('%.2f °C, %.2f m, %.2f psu', Tv, D, S)
 
-    def now():
-        return datetime.now().isoformat().replace(':', '')[:-7]
+
+    def open_csv(self):
+        self.csv_filename = f"data/CTD_Data_{now()}.csv"
+        self.fieldnames = ['Timestamp', 'Temperature (°C)', 'Depth (m)', 'Salinity (psu)']
+        self.csvfile = open(self.csv_filename, 'a', newline='')
+        self.writer = csv.DictWriter(self.csvfile, fieldnames=self.fieldnames)
+        self.writer.writeheader()
+
 
     def record_data(self):
-
-        csv_filename = f"data/CTD_Data_{now()}.csv"
-        fieldnames = ['Timestamp', 'Temperature (°C)', 'Depth (m)', 'Salinity (psu)']
-
-        with open(csv_filename, 'w', newline='') as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader() # Write the header only if the file doesn't exist
-
-            try:
-                self.connection()
-                while self.state:
-                    timestamp = now()
-                    self.datacollection()
-                    self.calculation()
-                    temperature = self.Tv
-                    depth = self.D
-                    salinity = self.S
-
-                    # Append the data to the CSV file
-                    writer.writerow({'Timestamp': timestamp,
-                                     'Temperature (°C)': temperature,
-                                     'Depth (m)': depth,
-                                     'Salinity (psu)': salinity})
-            except KeyboardInterrupt:
-                self.end()
+        self.writer.writerow({'Timestamp': self.timestamp,
+                         'Temperature (°C)': self.Tv,
+                         'Depth (m)': self.D,
+                         'Salinity (psu)': self.S})
         
 
     def end(self):
         self.ser.close()
-        
+
 
     def run(self):
         try:
-            self.record_data()
+            self.connection()
+            self.open_csv()
+
+            while self.state:
+                start_time = time.time() # Record the start time
+
+                self.datacollection()
+                self.calculation()
+                self.record_data()
+
+                elapsed_time = time.time() - start_time
+                time_remaining = self.sample_rate - elapsed_time
+
+                if time_remaining > 0:
+                    time.sleep(time_remaining) # Sleep for remaining time
+
         except KeyboardInterrupt:
             self.end()
             
